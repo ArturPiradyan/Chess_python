@@ -143,6 +143,11 @@ class BoardRenderer:
                 color = colors[(row + col) % 2]
                 pygame.draw.rect(self.screen, color, pygame.Rect(col*SQ_SIZE, row*SQ_SIZE, SQ_SIZE, SQ_SIZE))
 
+    def draw_highlights(self, screen, moves):
+        for (x, y) in moves:
+            rect = pygame.Rect(x*SQ_SIZE, (7 - y)*SQ_SIZE, SQ_SIZE, SQ_SIZE)
+            pygame.draw.rect(screen, (0, 255, 0, 80), rect, 5)
+
     def draw_pieces(self, board):
         for y in range(8):
             for x in range(8):
@@ -169,13 +174,10 @@ class Game:
 
 
     def create_initial_board(self):
-        # Create an empty 8x8 board
         B = [[None for _ in range(8)] for _ in range(8)]
-        # Place pawns
         for i in range(8):
             B[1][i] = Pawn('b')
             B[6][i] = Pawn('w')
-        # Place major pieces
         order = [Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook]
         for i, cls in enumerate(order):
             B[0][i] = cls('b')
@@ -187,6 +189,7 @@ class Game:
         while running:
             self.renderer.draw_board()
             self.renderer.draw_pieces(self.board)
+            self.renderer.draw_highlights(self.screen, self.highlight_moves)
             pygame.display.flip()
 
             for event in pygame.event.get():
@@ -202,14 +205,16 @@ class Game:
                         from_x, from_y = self.selected
                         piece = self.board[from_y][from_x]
                         if piece and piece.color == self.turn:
-                            legal_moves = piece.get_legal_moves(self.board, from_x, from_y)
-                            if (bx, by) in legal_moves:
+                            if (bx, by) in self.highlight_moves:
                                 self.board[by][bx] = piece
                                 self.board[from_y][from_x] = None
                                 self.turn = 'b' if self.turn == 'w' else 'w'
                         self.selected = None
+                        self.highlight_moves = []
                     elif clicked and clicked.color == self.turn:
                         self.selected = (bx, by)
+                        self.highlight_moves = clicked.get_legal_moves(self.board, bx, by)
+
 
             self.clock.tick(30)
 
