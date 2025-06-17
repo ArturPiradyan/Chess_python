@@ -3,9 +3,31 @@ import pygame
 WIDTH, HEIGHT = 640, 640
 SQ_SIZE = WIDTH // 8
 
+class ImageProvider:
+    def get_image(self, piece):
+        raise NotImplementedError("Subclasses must implement get_image.")
+
+class PieceAssetsAdapter(ImageProvider):
+    def __init__(self):
+        self.images = {}
+        self.load_images()
+
+    def load_images(self):
+        pieces = ['p', 'r', 'n', 'b', 'q', 'k']
+        colors = ['w', 'b']
+        for color in colors:
+            for piece in pieces:
+                name = f"{color}_{piece}"
+                self.images[name] = pygame.transform.scale(
+                    pygame.image.load(f"assets/{name}.png"), (SQ_SIZE, SQ_SIZE))
+
+    def get_image(self, piece):
+        return self.images.get(str(piece))
+
 class Piece:
     def __init__(self, color):
-        self.color = color  # 'w' or 'b'
+        self.color = color
+        self.has_moved = False
 
     def get_legal_moves(self, board, x, y):
         return []
@@ -28,13 +50,11 @@ class King(Piece):
                         moves.append((nx, ny))
         return moves
 
-
 class Queen(Piece):
     symbol = 'q'
     def get_legal_moves(self, board, x, y):
         return Rook(self.color).get_legal_moves(board, x, y) + \
                Bishop(self.color).get_legal_moves(board, x, y)
-
 
 class Rook(Piece):
     symbol = 'r'
@@ -56,7 +76,6 @@ class Rook(Piece):
                 ny += dy
         return moves
 
-
 class Bishop(Piece):
     symbol = 'b'
     def get_legal_moves(self, board, x, y):
@@ -77,7 +96,6 @@ class Bishop(Piece):
                 ny += dy
         return moves
 
-
 class Knight(Piece):
     symbol = 'n'
     def get_legal_moves(self, board, x, y):
@@ -91,19 +109,16 @@ class Knight(Piece):
                     moves.append((nx, ny))
         return moves
 
-
 class Pawn(Piece):
     symbol = 'p'
     def get_legal_moves(self, board, x, y):
         moves = []
         dir = 1 if self.color == 'w' else -1
         start_row = 6 if self.color == 'w' else 1
-        # move forward
         if board[y - dir][x] is None:
             moves.append((x, y - dir))
             if y == start_row and board[y - 2*dir][x] is None:
                 moves.append((x, y - 2*dir))
-        # captures
         for dx in [-1, 1]:
             nx = x + dx
             ny = y - dir
@@ -112,24 +127,6 @@ class Pawn(Piece):
                 if target and target.color != self.color:
                     moves.append((nx, ny))
         return moves
-
-
-class PieceAssets:
-    def __init__(self):
-        self.images = {}
-        self.load_images()
-
-    def load_images(self):
-        pieces = ['p', 'r', 'n', 'b', 'q', 'k']
-        colors = ['w', 'b']
-        for color in colors:
-            for piece in pieces:
-                name = f"{color}_{piece}"
-                self.images[name] = pygame.transform.scale(
-                    pygame.image.load(f"assets/{name}.png"), (SQ_SIZE, SQ_SIZE))
-
-    def get_image(self, piece):
-        return self.images.get(str(piece))
 
 class BoardRenderer:
     def __init__(self, screen, assets):
@@ -157,24 +154,18 @@ class BoardRenderer:
                     if img:
                         self.screen.blit(img, pygame.Rect(x*SQ_SIZE, (7 - y)*SQ_SIZE, SQ_SIZE, SQ_SIZE))
 
-class Game:
-    def __init__(self):
-        pygame.init()
-        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
-        pygame.display.set_caption("Custom Chess (OOP, No Library)")
-        self.clock = pygame.time.Clock()
+class Board:
+    _instance = None
 
-        self.assets = PieceAssets()
-        self.renderer = BoardRenderer(self.screen, self.assets)
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(Board, cls).__new__(cls)
+            cls._instance.grid = [[None for _ in range(8)] for _ in range(8)]
+            cls._instance.init_pieces()
+        return cls._instance
 
-        self.board = self.create_initial_board()
-        self.selected = None
-        self.turn = 'w'
-        self.highlight_moves = []
-
-
-    def create_initial_board(self):
-        B = [[None for _ in range(8)] for _ in range(8)]
+    def init_pieces(self):
+        B = self.grid
         for i in range(8):
             B[1][i] = Pawn('b')
             B[6][i] = Pawn('w')
@@ -182,43 +173,88 @@ class Game:
         for i, cls in enumerate(order):
             B[0][i] = cls('b')
             B[7][i] = cls('w')
-        return B
+
+
+class Game:
+    def __init__(self):
+        pygame.init()
+        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        pygame.display.set_caption("Custom Chess")
+        self.clock = pygame.time.Clock()
+
+        self.assets = PieceAssetsAdapter()
+        self.renderer = BoardRenderer(self.screen, self.assets)
+
+        self.selected = None
+        self.turn = 'w'
+        self.highlight_moves = []
+
+    def get_valid_moves(self, x, y):
+        piece = Board().grid[y][x]
+        if piece is None or piece.color != self.turn:
+            return []
+        return piece.get_legal_moves(Board().grid, x, y)
 
     def run(self):
         running = True
         while running:
             self.renderer.draw_board()
-            self.renderer.draw_pieces(self.board)
+            self.renderer.draw_pieces(Board().grid)
             self.renderer.draw_highlights(self.screen, self.highlight_moves)
             pygame.display.flip()
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
-
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     x, y = pygame.mouse.get_pos()
                     bx, by = x // SQ_SIZE, 7 - (y // SQ_SIZE)
-                    clicked = self.board[by][bx]
+                    clicked = Board().grid[by][bx]
 
                     if self.selected:
                         from_x, from_y = self.selected
-                        piece = self.board[from_y][from_x]
+                        piece = Board().grid[from_y][from_x]
                         if piece and piece.color == self.turn:
                             if (bx, by) in self.highlight_moves:
-                                self.board[by][bx] = piece
-                                self.board[from_y][from_x] = None
+                                Board().grid[by][bx] = piece
+                                Board().grid[from_y][from_x] = None
                                 self.turn = 'b' if self.turn == 'w' else 'w'
                         self.selected = None
                         self.highlight_moves = []
                     elif clicked and clicked.color == self.turn:
                         self.selected = (bx, by)
-                        self.highlight_moves = clicked.get_legal_moves(self.board, bx, by)
-
-
+                        self.highlight_moves = self.get_valid_moves(bx, by)
             self.clock.tick(30)
-
         pygame.quit()
+
+class GameManager:
+    _instance = None
+
+    @staticmethod
+    def get_instance():
+        if GameManager._instance is None:
+            GameManager()
+        return GameManager._instance
+
+    def __init__(self):
+        if GameManager._instance is not None:
+            raise Exception("This class is a singleton!")
+        GameManager._instance = self
+
+        self.current_turn = "white"
+        self.game_over = False
+
+    def switch_turn(self):
+        self.current_turn = "black" if self.current_turn == "white" else "white"
+
+    def get_turn(self):
+        return self.current_turn
+
+    def is_game_over(self):
+        return self.game_over
+
+    def end_game(self):
+        self.game_over = True
 
 if __name__ == "__main__":
     Game().run()
